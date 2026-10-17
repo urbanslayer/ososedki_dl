@@ -48,7 +48,7 @@
 
 ## Changes in this fork
 
-This is a fork of [YisusChrist/ososedki_dl](https://github.com/YisusChrist/ososedki_dl). All credit for the original project goes to its author; this section documents what has changed here.
+This is a fork of [YisusChrist/ososedki_dl](https://github.com/YisusChrist/ososedki_dl). All credit for the original project goes to its author; this section documents what has changed here. The PyPI package still ships the upstream version, so see [Installation](#installation) for how to get this fork instead.
 
 - **Fix:** `ososedki` downloads silently produced empty folders, because the image links on the site are now relative (e.g. `/images/a/1280/.../10.webp`) instead of absolute. Hrefs are now resolved against the site URL before matching, and an album page that yields zero media is now reported and retried as an error instead of silently completing with an empty folder.
 - **Fix:** model URLs such as `https://ososedki.com/model/Chuchu+Nagomitei` were rejected with `Unknown URL format`, because `model_url` wasn't configured for `ososedki.com`. URL matching is now path-based, so `http`/`https`, `www`/no-`www`, and a missing trailing slash no longer matter, and `+`/`%20` in names no longer affects matching or folder names.
@@ -119,6 +119,19 @@ Here's a breakdown of the packages needed and their versions:
 
 ### From PyPI
 
+> [!NOTE]
+> `pip install ososedki_dl` (and `pipx install ososedki_dl` below) installs the original upstream version from PyPI, which does **not** include this fork's fixes and changes (see [Changes in this fork](#changes-in-this-fork)). To get this fork instead, use [Manual installation](#manual-installation) below, or install straight from GitHub:
+>
+> ```bash
+> pip install git+https://github.com/urbanslayer/ososedki_dl
+> ```
+>
+> or, with pipx:
+>
+> ```bash
+> pipx install git+https://github.com/urbanslayer/ososedki_dl
+> ```
+
 `ososedki_dl` can be installed easily as a PyPI package. Just run the following command:
 
 ```bash
@@ -141,10 +154,10 @@ If you prefer to install the program manually, follow these steps:
 > [!WARNING]
 > This will install the version from the latest commit, not the latest release.
 
-1. Download the latest version of [ososedki_dl](https://github.com/YisusChrist/ososedki_dl) from this repository:
+1. Download the latest version of [ososedki_dl](https://github.com/urbanslayer/ososedki_dl) (this fork) from this repository:
 
    ```bash
-   git clone https://github.com/YisusChrist/ososedki_dl
+   git clone https://github.com/urbanslayer/ososedki_dl
    cd ososedki_dl
    ```
 
