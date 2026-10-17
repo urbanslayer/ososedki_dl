@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+from argparse import BooleanOptionalAction
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -78,11 +79,15 @@ def get_parsed_args() -> Namespace:
         help="Specify the cookies file to use for authentication.",
     )
     g_main.add_argument(
-        "--no-convert",
+        "--convert",
         dest="convert_webp",
-        action="store_false",
-        default=True,
-        help="Don't convert downloaded .webp images to .jpg; keep the originals.",
+        action=BooleanOptionalAction,
+        default=None,
+        help="Convert downloaded .webp images to .jpg (quality 92, "
+        "transparency flattened onto white, animated .webp left as-is, "
+        "original .webp removed on success). Default: enabled. Also "
+        "settable via 'convert_webp' in the [Download] section of the "
+        "config file; this flag takes precedence over that setting.",
     )
 
     g_user = parser.add_argument_group("User Options")

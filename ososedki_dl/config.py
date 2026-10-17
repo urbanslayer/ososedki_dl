@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from core_helpers.logs import logger
 from rich import print
 
-from .consts import CONFIG_FILE, DEFAULT_DEST_PATH, EXIT_FAILURE
+from .consts import CONFIG_FILE, DEFAULT_CONVERT_WEBP, DEFAULT_DEST_PATH, EXIT_FAILURE
 from .utils import exit_session
 
 if TYPE_CHECKING:
@@ -72,6 +72,7 @@ def create_config_file(interactive: bool = False) -> None:
 
     config = ConfigParser()
     config.add_section("Paths")
+    config.add_section("Download")
 
     dest_path: Path = (
         get_path_from_dialog(title="Select Destination Path")
@@ -82,6 +83,7 @@ def create_config_file(interactive: bool = False) -> None:
     logger.info("Destination path: %s", dest_path)
 
     config.set("Paths", "dest_path", str(dest_path))
+    config.set("Download", "convert_webp", str(DEFAULT_CONVERT_WEBP))
 
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         config.write(f)
@@ -133,6 +135,13 @@ def load_config(args: Namespace) -> None:
     args.dest_path = Path(
         args.dest_path or config.get("Paths", "dest_path", fallback=DEFAULT_DEST_PATH)
     ).resolve()
+
+    # The --convert/--no-convert CLI flag takes precedence over the config
+    # file; args.convert_webp is None only when neither flag was passed.
+    if args.convert_webp is None:
+        args.convert_webp = config.getboolean(
+            "Download", "convert_webp", fallback=DEFAULT_CONVERT_WEBP
+        )
 
 
 def print_entire_config(config: ConfigParser) -> None:

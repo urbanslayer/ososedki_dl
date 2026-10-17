@@ -391,6 +391,33 @@ class OsosedkiBaseCrawler(BaseCrawler, ABC):
         """
         Asynchronously extracts all media (image) URLs from an album or page.
 
+        Delegates the actual extraction to `_collect_media_urls`. A result of
+        zero media is treated as a failed extraction rather than a valid
+        empty album: it raises so `process_album`'s existing retry loop picks
+        it up and the album is reported as an error, instead of silently
+        creating an empty download folder (the original form of this bug,
+        where the site's image links had become relative and so matched
+        nothing).
+
+        Args:
+            soup (BeautifulSoup): The parsed HTML content of the album page.
+            url (str): The URL of the album page being processed.
+
+        Returns:
+            list[str]: List of extracted image URLs. Always non-empty.
+
+        Raises:
+            ValueError: If no media URLs could be extracted from the page.
+        """
+        images: list[str] = await self._collect_media_urls(soup, url)
+        if not images:
+            raise ValueError(f"No media found for album {url}")
+        return images
+
+    async def _collect_media_urls(self, soup: BeautifulSoup, url: str) -> list[str]:
+        """
+        Asynchronously extracts all media (image) URLs from an album or page.
+
         If pagination is enabled, retrieves images using paginated API requests
         based on album and owner IDs extracted from the page. Otherwise,
         collects image URLs from anchor tags referencing the base media URL,
@@ -403,7 +430,8 @@ class OsosedkiBaseCrawler(BaseCrawler, ABC):
                 in this method).
 
         Returns:
-            list[str]: List of extracted image URLs.
+            list[str]: List of extracted image URLs, or an empty list if none
+                could be found.
         """
         logger.debug("Extracting media from soup")
 
