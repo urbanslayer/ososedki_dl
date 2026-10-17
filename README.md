@@ -46,9 +46,38 @@
 
 `ososedki_dl` is a Python app that allows you to download all the images from online albums. The program is designed to be simple and easy to use, with a command-line interface that allows you to download images from the website with a single command. Check the [Supported sites](#supported-sites) section to see the list of supported websites.
 
+## Changes in this fork
+
+This is a fork of [YisusChrist/ososedki_dl](https://github.com/YisusChrist/ososedki_dl). All credit for the original project goes to its author; this section documents what has changed here.
+
+- **Fix:** `ososedki` downloads silently produced empty folders, because the image links on the site are now relative (e.g. `/images/a/1280/.../10.webp`) instead of absolute. Hrefs are now resolved against the site URL before matching, and an album page that yields zero media is now reported and retried as an error instead of silently completing with an empty folder.
+- **Fix:** model URLs such as `https://ososedki.com/model/Chuchu+Nagomitei` were rejected with `Unknown URL format`, because `model_url` wasn't configured for `ososedki.com`. URL matching is now path-based, so `http`/`https`, `www`/no-`www`, and a missing trailing slash no longer matter, and `+`/`%20` in names no longer affects matching or folder names.
+- **Change:** downloads are now organised as `<download_dir>/<subject>/<set>/` instead of a single flat `<subject>/` folder, falling back to `<subject>/<album id>` when no set name (e.g. cosplay character) is found on the album page, so different sets never mix together. For example, downloading https://ososedki.com/photos/-10000001_10015936:
+
+  ```text
+  # Before
+  downloads/
+  └── Le Josette/
+      ├── 1.webp
+      ├── 2.webp
+      └── ... (32 files)
+
+  # After
+  downloads/
+  └── Le Josette/
+      └── Zhezhi/
+          ├── 1.jpg
+          ├── 2.jpg
+          └── ... (32 files)
+  ```
+
+- **Change:** images are converted from WebP to JPG by default (quality 92, optimized, transparency flattened onto a white background, EXIF/ICC metadata preserved when present). Animated WebP files are left as-is, since a JPG can only keep the first frame. The original `.webp` is removed once conversion succeeds. Use `--no-convert` to keep the original WebP files instead — see [WebP to JPG conversion](#webp-to-jpg-conversion) below.
+- **New dependency:** [Pillow](https://pypi.org/project/pillow), used for the WebP → JPG conversion above.
+
 <details>
 <summary>Table of Contents</summary>
 
+- [Changes in this fork](#changes-in-this-fork)
 - [Requirements](#requirements)
 - [Installation](#installation)
   - [From PyPI](#from-pypi)
@@ -57,6 +86,7 @@
 - [Usage](#usage)
   - [Example of execution](#example-of-execution)
   - [Progress bars](#progress-bars)
+  - [WebP to JPG conversion](#webp-to-jpg-conversion)
   - [Supported sites](#supported-sites)
 - [Contributors](#contributors)
   - [How do I contribute to ososedki\_dl?](#how-do-i-contribute-to-ososedki_dl)
@@ -74,6 +104,7 @@ Here's a breakdown of the packages needed and their versions:
 - [aiohttp](https://pypi.org/project/aiohttp) >= 3.9.5
 - [beautifulsoup4](https://pypi.org/project/beautifulsoup4) >= 4.12.2
 - [fake-useragent](https://pypi.org/project/fake-useragent) >= 1.5.1
+- [pillow](https://pypi.org/project/pillow) >= 12.3.0 (_this fork, for WebP → JPG conversion_)
 - [platformdirs](https://pypi.org/project/platformdirs) >= 4.2.2
 - [requests](https://pypi.org/project/requests) >= 2.31.0
 - [requests-pprint](https://pypi.org/project/requests-pprint) >= 1.0.1
@@ -161,6 +192,25 @@ Since 2025-08-18, the program includes progress bars for downloading processes. 
 - **Videos**: This bar shows the progress of a single video being downloaded. It indicates how much of the video has been downloaded so far.
 
   https://github.com/user-attachments/assets/8bdc1de9-32eb-4cc2-96ae-061e1df76e1c
+
+### WebP to JPG conversion
+
+By default, every downloaded `.webp` image is converted to `.jpg` (quality 92, optimized, transparency flattened onto a white background, animated WebP left untouched, and the original `.webp` removed once conversion succeeds). Use `--no-convert` to keep the original WebP files instead:
+
+```bash
+ososedki_dl --no-convert
+```
+
+To be explicit about keeping the default behavior (for example, to override a `convert_webp = false` set in your config file for a single run), pass `--convert`:
+
+```bash
+ososedki_dl --convert
+```
+
+This can also be set persistently via `convert_webp` under `[Download]` in the config file (inspect it with `ososedki_dl --print-config`) — the `--convert`/`--no-convert` flag always takes precedence over that setting.
+
+> [!NOTE]
+> JPGs produced this way are typically larger on disk than the WebP originals, since WebP's compression is generally more efficient than JPEG's at a comparable visual quality.
 
 ### Supported sites
 
