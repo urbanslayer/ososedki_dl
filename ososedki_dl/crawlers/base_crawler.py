@@ -56,7 +56,11 @@ class BaseCrawler(ABC):
         self.session = session
         self.download_path = args.dest_path
         self.downloader = Downloader(
-            self.session, self.headers, args.check_cache, debug=args.debug
+            self.session,
+            self.headers,
+            args.check_cache,
+            debug=args.debug,
+            convert_webp=getattr(args, "convert_webp", True),
         )
 
     @property
@@ -104,6 +108,29 @@ class BaseCrawler(ABC):
         raise NotImplementedError(
             "Each crawler must implement its own get_album_title method"
         )
+
+    def get_album_path_parts(
+        self, soup: BeautifulSoup, url: str, title: str
+    ) -> tuple[str, ...]:
+        """
+        Returns the path segments (relative to the download directory) that
+        an album's media should be saved under.
+
+        The default implementation saves every album directly under a single
+        folder named after `title`. Subclasses that group albums into a
+        subject/set hierarchy (e.g. model/cosplay-character) can override this
+        to return additional segments.
+
+        Args:
+            soup (BeautifulSoup): Parsed HTML content of the album page.
+            url (str): The URL of the album page being processed.
+            title (str): The album title, as returned by `get_album_title`.
+
+        Returns:
+            tuple[str, ...]: One or more path segments, sanitized and joined
+                under the download directory.
+        """
+        return (title,)
 
     @abstractmethod
     async def get_media_urls(self, soup: BeautifulSoup, url: str) -> list[str]:
@@ -170,13 +197,14 @@ class BaseCrawler(ABC):
         return BeautifulSoup(html_content, "html.parser")
 
     async def download_media_items(
-        self, media_urls: list[str], album_title: str
+        self, media_urls: list[str], *path_parts: str
     ) -> list[dict[str, str]]:
+        album_title: str = " / ".join(path_parts)
         logger.debug(
             f"Downloading {len(media_urls)} media items for album '{album_title}'"
         )
 
-        album_path: Path = get_final_path(self.download_path, album_title)
+        album_path: Path = get_final_path(self.download_path, *path_parts)
 
         # 1. Create a semaphore to limit concurrent network requests
         semaphore = asyncio.Semaphore(self.max_concurrent_downloads)
@@ -239,6 +267,7 @@ class BaseCrawler(ABC):
 
         album_url = album_url.rstrip("/")
         retries = 0
+        path_parts: tuple[str, ...] | None = None
 
         while retries <= MAX_RETRIES:
             if retries > 0:
@@ -255,6 +284,8 @@ class BaseCrawler(ABC):
                 if not title:
                     raise ValueError("Title could not be determined")
 
+                path_parts = self.get_album_path_parts(soup, album_url, title)
+
                 media_urls = media_urls or await self.get_media_urls(soup, album_url)
                 media_urls = list(set(media_urls))
                 # print(f"Title: {title}")
@@ -265,7 +296,7 @@ class BaseCrawler(ABC):
                 retries += 1
                 continue
 
-            return await self.download_media_items(media_urls, title)
+            return await self.download_media_items(media_urls, *path_parts)
 
         logger.error(f"Max retries reached for {album_url}. Skipping...")
         print(f"ERROR: Max retries reached for {album_url}. Skipping...")

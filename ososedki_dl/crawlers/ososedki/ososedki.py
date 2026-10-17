@@ -7,7 +7,7 @@ class OsosedkiCrawler(OsosedkiBaseCrawler):
     site_url = "https://ososedki.com"
     base_image_path = "/images/a/"
     album_path = "/photos/"
-    model_url = None
+    model_url = f"{site_url}/model/"
     cosplay_url = f"{site_url}/cosplay/"
     fandom_url = None
     button_class = None

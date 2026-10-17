@@ -19,6 +19,7 @@ dependencies = [
   "rich>=13.5.3",
   "tldextract>=5.1.2",
   "validators>=0.*",
+  "pillow (>=12.3.0,<13.0.0)",
 ]
 
 [project.urls]
@@ -29,6 +30,7 @@ ososedki_dl = "ososedki_dl.__main__:main"
 
 [tool.poetry.group.dev.dependencies]
 requests-pprint = "^1.0.1"
+pytest = "^9.1.1"
 
 [tool.poetry.group.types.dependencies]
 types-aiofiles = ">=24.1.0.20241221"

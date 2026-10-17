@@ -7,7 +7,7 @@ import re
 from abc import ABC
 from itertools import chain
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 from core_helpers.logs import logger
@@ -40,6 +40,54 @@ class OsosedkiBaseCrawler(BaseCrawler, ABC):
     fandom_url: str | None = None
     button_class: str | None = None
     pagination: bool
+
+    def _resolve_media_href(self, href: str | None) -> str | None:
+        """
+        Resolves an anchor's href (which may be relative or absolute) against
+        the site URL and returns it only if it points at the site's media host.
+
+        Args:
+            href (str | None): The raw href attribute value, or None if the
+                tag has no href.
+
+        Returns:
+            str | None: The absolute media URL, or None if `href` is missing
+                or doesn't point at `base_media_url`.
+        """
+        if not href:
+            return None
+        full_href: str = urljoin(self.site_url, href)
+        return full_href if self.base_media_url in full_href else None
+
+    @staticmethod
+    def _url_matches_section(url: str, section: str | None) -> bool:
+        """
+        Checks whether `url` falls under a configured site section (e.g.
+        `album_path`, `model_url`), comparing parsed URL paths rather than
+        raw string prefixes.
+
+        `section` may be a bare path (e.g. "/photos/") or a full URL (e.g.
+        "https://ososedki.com/model/"); either way, only the path component
+        is compared, so scheme (http/https), host (www vs. no-www, or a
+        historical domain alias), and a missing trailing slash on `section`
+        don't cause a false negative.
+
+        Args:
+            url (str): The URL to check.
+            section (str | None): The section path or URL to match against,
+                or None if this crawler doesn't support that section.
+
+        Returns:
+            bool: True if `url`'s path starts with `section`'s path.
+        """
+        if not section:
+            return False
+
+        section_path: str = urlparse(section).path
+        if not section_path.endswith("/"):
+            section_path += "/"
+
+        return urlparse(url).path.startswith(section_path)
 
     def _get_article_title(self, soup: BeautifulSoup) -> str:
         logger.debug("Extracting article title from soup")
@@ -133,6 +181,86 @@ class OsosedkiBaseCrawler(BaseCrawler, ABC):
         logger.info(f"Extracted title: {title}")
         return title
 
+    def get_set_title(self, soup: BeautifulSoup, url: str) -> str | None:
+        """
+        Extracts the "set" an album belongs to, i.e. the specific
+        cosplay character or fandom a subject's album is grouped under, so
+        that albums for the same character don't get mixed together under a
+        single subject folder.
+
+        Looks for a structural link on the album page pointing at
+        `cosplay_url` first, falling back to `fandom_url`, rather than
+        string-splitting the page title: the site tags each album with
+        dedicated buttons/badges linking to those sections, and that holds up
+        across albums (including ones with no set at all) better than parsing
+        free-form text.
+
+        Args:
+            soup (BeautifulSoup): The parsed HTML content of the album page.
+            url (str): The URL of the album page being processed (not used in
+                this method).
+
+        Returns:
+            str | None: The extracted set name, or None if the album page
+                doesn't link to a cosplay or fandom section.
+        """
+        logger.debug("Extracting set title from soup")
+
+        for attr_name in ("cosplay_url", "fandom_url"):
+            base_url: str | None = getattr(self, attr_name, None)
+            if not base_url:
+                continue
+
+            path: str = urlparse(base_url).path
+            if not path or "{" in path:
+                # Not a real, matchable URL path (e.g. a template placeholder)
+                continue
+
+            anchor: Tag | NavigableString | None = soup.find(
+                "a", href=lambda href: href and href.startswith(path)
+            )
+            if not anchor or isinstance(anchor, NavigableString):
+                continue
+
+            text: str = anchor.get_text(strip=True)
+            if text:
+                logger.info(f"Extracted set title: {text}")
+                return text
+
+        logger.debug("No set title found in soup")
+        return None
+
+    def _get_album_id(self, url: str) -> str:
+        """
+        Derives a stable fallback identifier for an album from its URL, for
+        use as a folder name when no set could be determined.
+
+        Args:
+            url (str): The album URL.
+
+        Returns:
+            str: The album id, e.g. "10015936" for
+                ".../photos/-10000001_10015936".
+        """
+        segment: str = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
+        if "_" in segment:
+            segment = segment.rsplit("_", 1)[-1]
+        return segment or "unknown"
+
+    @override
+    def get_album_path_parts(
+        self, soup: BeautifulSoup, url: str, title: str
+    ) -> tuple[str, ...]:
+        """
+        Nests each album under `<subject>/<set>`, so albums for different
+        cosplay characters/fandoms never mix under the same subject folder.
+        Falls back to `<subject>/<album id>` when no set can be determined,
+        so albums without one still get their own folder instead of dumping
+        files loose into the subject folder.
+        """
+        set_title: str | None = self.get_set_title(soup, url)
+        return (title, set_title or self._get_album_id(url))
+
     async def _extract_paginated_images(
         self,
         owner_id: str,
@@ -185,18 +313,18 @@ class OsosedkiBaseCrawler(BaseCrawler, ABC):
             logger.info(f"Fetched {len(photos)} photos from offset {payload['offset']}")
             for photo in photos:
                 soup = BeautifulSoup(photo["html"], "html.parser")
-                anchor: Tag | NavigableString | None = soup.find(
-                    "a", href=lambda href: self.base_media_url in href
-                )
-                if not anchor or isinstance(anchor, NavigableString):
+                resolved_href: str | None = None
+                for anchor in soup.find_all("a", href=True):
+                    href: str | list[str] = anchor["href"]
+                    if isinstance(href, list):
+                        href = href[0]
+                    resolved_href = self._resolve_media_href(href)
+                    if resolved_href:
+                        break
+                if not resolved_href:
                     continue
-                href: str | list[str] | None = anchor.get("href")
-                if not href:
-                    continue
-                if isinstance(href, list):
-                    href = href[0]
-                logger.debug(f"Found image URL: {href}")
-                images.append(href)
+                logger.debug(f"Found image URL: {resolved_href}")
+                images.append(resolved_href)
 
             if len(photos) < pagination_size:
                 break
@@ -289,10 +417,11 @@ class OsosedkiBaseCrawler(BaseCrawler, ABC):
             return await self._extract_paginated_images(owner_id, album_id)
 
         # ? If images under a tag return 404, use tag img and get src
-        images: list[str] = [
-            tag.get("href").replace("/604/", "/1280/")
-            for tag in soup.find_all("a", href=lambda href: self.base_media_url in href)
-        ]
+        images: list[str] = []
+        for tag in soup.find_all("a", href=True):
+            resolved_href: str | None = self._resolve_media_href(tag.get("href"))
+            if resolved_href:
+                images.append(resolved_href.replace("/604/", "/1280/"))
         if images:
             logger.info(f"Found {len(images)} images in the soup")
             return images
@@ -396,13 +525,13 @@ class OsosedkiBaseCrawler(BaseCrawler, ABC):
         """
         logger.debug(f"Downloading from URL {url} using {self.__class__.__name__}")
 
-        if url.startswith(self.site_url + self.album_path):
+        if self._url_matches_section(url, self.album_path):
             logger.info(f"Downloading album from {url}")
             return await self.process_album(url)
         elif (
-            (self.model_url and url.startswith(self.model_url))
-            or (self.cosplay_url and url.startswith(self.cosplay_url))
-            or (self.fandom_url and url.startswith(self.fandom_url))
+            self._url_matches_section(url, self.model_url)
+            or self._url_matches_section(url, self.cosplay_url)
+            or self._url_matches_section(url, self.fandom_url)
         ):
             logger.info(f"Downloading albums from {url}")
             results: list[dict[str, str]] = []

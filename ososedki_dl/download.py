@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from asyncio import sleep
+from asyncio import sleep, to_thread
 from dataclasses import dataclass
 from hashlib import sha256
 from mimetypes import guess_extension
@@ -29,6 +29,7 @@ from .consts import (
     MAX_SLEEP_SECONDS,
     SOCK_TIMEOUT,
 )
+from .image_convert import convert_webp_to_jpg
 from .progress import MediaProgress
 from .utils import get_unique_filename, get_url_hashfile, sanitize_path, write_to_cache
 
@@ -70,6 +71,7 @@ class Downloader:
     headers: dict[str, str] | None = None
     check_cache: bool = False
     debug: bool = False
+    convert_webp: bool = True
     chunk_size: int = 0
     dynamic_chunk: bool = False
     timeout = ClientTimeout(sock_connect=SOCK_TIMEOUT, sock_read=SOCK_TIMEOUT)
@@ -364,6 +366,19 @@ class Downloader:
             logger.info(f"Media already in cache, skipping download: {url}")
             return {"url": url, "status": "skipped"}
 
+        # If this URL's own filename is a .webp and we've already converted
+        # a prior copy of it to .jpg, skip without even fetching: the .webp
+        # itself gets deleted once converted, so its own presence can't be
+        # used as the "already downloaded" marker anymore.
+        url_media_name: str = unquote(urlparse(url).path).split("/")[-1]
+        if self.convert_webp and url_media_name.lower().endswith(".webp"):
+            converted_path: Path = sanitize_path(album_path, url_media_name).with_suffix(
+                ".jpg"
+            )
+            if converted_path.exists():
+                logger.info(f"Converted JPG already exists, skipping: {converted_path}")
+                return {"url": url, "status": "skipped"}
+
         try:
             response: ResponseType = await self.fetch(url, raw_response=True)
         except ClientResponseError as e:
@@ -423,6 +438,17 @@ class Downloader:
             status, final_path = await self.download_video(url, response, media_path)
         else:
             status, final_path = await self.download_image(url, response, media_path)
+
+        if (
+            status in ("ok", "skipped")
+            and self.convert_webp
+            and final_path.suffix.lower() == ".webp"
+        ):
+            # Pillow is blocking; run it off the event loop so it doesn't
+            # stall other concurrent downloads.
+            jpg_path: Path | None = await to_thread(convert_webp_to_jpg, final_path)
+            if jpg_path is not None:
+                final_path = jpg_path
 
         if status == "ok":
             if self.check_cache:

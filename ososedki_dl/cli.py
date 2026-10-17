@@ -77,6 +77,13 @@ def get_parsed_args() -> Namespace:
         type=Path,
         help="Specify the cookies file to use for authentication.",
     )
+    g_main.add_argument(
+        "--no-convert",
+        dest="convert_webp",
+        action="store_false",
+        default=True,
+        help="Don't convert downloaded .webp images to .jpg; keep the originals.",
+    )
 
     g_user = parser.add_argument_group("User Options")
     g_user.add_argument(

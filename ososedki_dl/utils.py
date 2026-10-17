@@ -95,6 +95,33 @@ def get_user_input(path: Path) -> tuple[list[str], Path]:
     return url, path
 
 
+def sanitize_title(title: str) -> str:
+    """
+    Sanitize a single filesystem path segment (a file or directory name).
+
+    Strips characters that are invalid on common filesystems, along with
+    leading/trailing spaces and dots (trailing dots/spaces are invalid on
+    Windows).
+
+    Args:
+        title (str): The segment to be sanitized.
+
+    Returns:
+        str: The sanitized segment. Falls back to "Unknown" if nothing valid
+            remains (e.g. the title was only invalid characters, or "..").
+    """
+    # Define a regular expression pattern to match invalid characters
+    invalid_chars = r'[<>:"/\\|?*]'
+    # Replace invalid characters with an underscore or another safe character
+    sanitized_title: str = re.sub(invalid_chars, "_", title)
+    # Remove leading and trailing spaces and dots
+    sanitized_title = sanitized_title.strip(" .")
+    if sanitized_title.startswith("_"):
+        sanitized_title = sanitized_title[1:]
+
+    return sanitized_title or "Unknown"
+
+
 def sanitize_path(path: Path, title: str) -> Path:
     """
     Sanitize the given title to create a valid filesystem path.
@@ -108,40 +135,45 @@ def sanitize_path(path: Path, title: str) -> Path:
     """
     logger.debug(f"Sanitizing path for title: {title}")
 
-    # Define a regular expression pattern to match invalid characters
-    invalid_chars = r'[<>:"/\\|?*]'
-    # Replace invalid characters with an underscore or another safe character
-    sanitized_title: str = re.sub(invalid_chars, "_", title)
-    # Remove leading and trailing spaces
-    sanitized_title = sanitized_title.strip()
-    if sanitized_title.startswith("_"):
-        sanitized_title = sanitized_title[1:]
-
-    final_path: Path = (path / sanitized_title).resolve()
+    final_path: Path = (path / sanitize_title(title)).resolve()
     logger.debug(f"Sanitized path: {final_path}")
 
     return final_path
 
 
-def get_final_path(download_path: Path, title: str) -> Path:
+def get_final_path(download_path: Path, *titles: str) -> Path:
     """
     Get the final sanitized path for downloading content.
 
+    Each title is sanitized independently and joined as nested directory
+    segments (e.g. `get_final_path(download_path, "subject", "set")` ->
+    `download_path/subject/set`), so a title can never "escape" into its
+    sibling's segment via a slash or path separator of its own.
+
     Args:
         download_path (Path): The base download path.
-        title (str): The title to be used for the final path.
+        *titles (str): One or more path segments to nest the final path
+            under, in order.
 
     Returns:
         Path: The final sanitized download path.
 
     Raises:
-        ValueError: If the final path is invalid.
+        ValueError: If the final path is invalid (e.g. it would resolve
+            outside of `download_path`).
     """
-    logger.debug(f"Getting final path for title: {title}")
+    logger.debug(f"Getting final path for titles: {titles}")
 
-    final_path: Path = sanitize_path(download_path, title)
-    # Sanitize the path
-    if final_path.parent != download_path.resolve():
+    resolved_download_path: Path = download_path.resolve()
+    final_path: Path = resolved_download_path
+    for title in titles:
+        final_path = final_path / sanitize_title(title)
+    final_path = final_path.resolve()
+
+    # Sanitize the path: it must stay inside download_path
+    if final_path != resolved_download_path and (
+        resolved_download_path not in final_path.parents
+    ):
         raise ValueError("Invalid path", final_path)
 
     final_path.mkdir(parents=True, exist_ok=True)
